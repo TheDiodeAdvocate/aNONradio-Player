@@ -26,4 +26,4 @@ Just open `anonradio-player.html` in any modern browser. No server, no install, 
 
 ## License
 
-Unlicensed / personal project.
+MIT.
