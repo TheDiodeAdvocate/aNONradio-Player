@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>aNONradio :: player</title>
+<style>
+  :root {
+    --bg: #0a0806;
+    --panel: #14100c;
+    --panel-edge: #2a2118;
+    --amber: #ffb000;
+    --amber-dim: #7a5a20;
+    --amber-glow: rgba(255, 176, 0, 0.35);
+    --red: #ff3b30;
+    --text-muted: #8a7a5c;
+    --mono: "IBM Plex Mono", "SF Mono", "Courier New", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    background-image:
+      radial-gradient(ellipse at 50% -10%, rgba(255,176,0,0.06), transparent 60%);
+    font-family: var(--mono);
+    color: var(--amber);
+    padding: 24px;
+  }
+
+  .wrap {
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .panel {
+    width: 100%;
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 6px;
+    padding: 28px 26px 22px;
+    box-shadow:
+      0 0 0 1px rgba(0,0,0,0.6),
+      0 20px 50px rgba(0,0,0,0.6),
+      inset 0 1px 0 rgba(255,255,255,0.03);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* faint scanlines for CRT/receiver feel */
+  .panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.015) 0px,
+      rgba(255,255,255,0.015) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px dashed var(--panel-edge);
+    padding-bottom: 14px;
+    margin-bottom: 18px;
+  }
+
+  .callsign {
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  .freq {
+    font-size: 13px;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+  }
+
+  .title {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    margin: 0 0 4px;
+    text-shadow: 0 0 12px var(--amber-glow);
+  }
+
+  .sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.12em;
+    margin-bottom: 22px;
+  }
+
+  /* ON AIR indicator */
+  .indicator-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .lamp {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #3a1a10;
+    box-shadow: inset 0 0 3px rgba(0,0,0,0.8);
+    transition: background 0.3s, box-shadow 0.3s;
+    flex-shrink: 0;
+  }
+
+  .lamp.live {
+    background: var(--red);
+    box-shadow: 0 0 8px 2px rgba(255,59,48,0.7), inset 0 0 3px rgba(0,0,0,0.4);
+  }
+
+  .lamp.pending {
+    background: var(--amber-dim);
+    animation: blink 0.9s steps(1) infinite;
+  }
+
+  @keyframes blink {
+    50% { opacity: 0.25; }
+  }
+
+  .status-text {
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .status-text.live { color: var(--amber); }
+
+  .nowplaying {
+    font-size: 12px;
+    color: var(--text-muted);
+    min-height: 16px;
+    margin-bottom: 20px;
+    letter-spacing: 0.02em;
+    word-break: break-word;
+  }
+
+  /* VU bars, decorative, animate while playing */
+  .vu {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 28px;
+    margin-bottom: 22px;
+  }
+
+  .vu span {
+    flex: 1;
+    background: var(--amber-dim);
+    height: 15%;
+    border-radius: 1px;
+    transition: background 0.2s;
+  }
+
+  .vu.active span {
+    background: var(--amber);
+    animation: bounce 1.1s ease-in-out infinite;
+  }
+
+  .vu span:nth-child(1) { animation-delay: 0s; }
+  .vu span:nth-child(2) { animation-delay: 0.1s; }
+  .vu span:nth-child(3) { animation-delay: 0.2s; }
+  .vu span:nth-child(4) { animation-delay: 0.05s; }
+  .vu span:nth-child(5) { animation-delay: 0.3s; }
+  .vu span:nth-child(6) { animation-delay: 0.15s; }
+  .vu span:nth-child(7) { animation-delay: 0.25s; }
+  .vu span:nth-child(8) { animation-delay: 0.08s; }
+
+  @keyframes bounce {
+    0%, 100% { height: 15%; }
+    50% { height: 90%; }
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .power-btn {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: transparent;
+    color: var(--amber);
+    border: 1px solid var(--amber-dim);
+    padding: 10px 18px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .power-btn:hover {
+    background: rgba(255,176,0,0.08);
+    border-color: var(--amber);
+  }
+
+  .power-btn:active { transform: scale(0.98); }
+
+  .power-btn.on {
+    background: rgba(255,176,0,0.12);
+    border-color: var(--amber);
+  }
+
+  .vol-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+  }
+
+  .vol-row label {
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+  }
+
+  input[type="range"] {
+    flex: 1;
+    accent-color: var(--amber);
+    height: 3px;
+  }
+
+  .footer-note {
+    margin-top: 20px;
+    font-size: 10px;
+    color: var(--text-muted);
+    border-top: 1px dashed var(--panel-edge);
+    padding-top: 12px;
+    line-height: 1.5;
+  }
+
+  .footer-note a { color: var(--amber-dim); }
+
+  /* Schedule panel */
+  .sched-panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 6px;
+    padding: 16px 18px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 20px 50px rgba(0,0,0,0.6);
+  }
+
+  .sched-summary {
+    cursor: pointer;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .sched-summary::-webkit-details-marker { display: none; }
+  .sched-summary::marker { content: ""; }
+
+  .sched-summary .arrow { transition: transform 0.15s; color: var(--amber-dim); }
+  details[open] .sched-summary .arrow { transform: rotate(90deg); }
+
+  .sched-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 10px;
+    margin-bottom: 6px;
+    line-height: 1.5;
+  }
+
+  .sched-scroll {
+    max-height: 360px;
+    overflow-y: auto;
+    overflow-x: auto;
+    margin-top: 10px;
+    border-top: 1px dashed var(--panel-edge);
+  }
+
+  table.sched-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+
+  table.sched-table th.day-head {
+    text-align: left;
+    padding: 8px 4px 4px;
+    color: var(--amber-dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-size: 10px;
+    border-bottom: 1px dashed var(--panel-edge);
+  }
+
+  table.sched-table td {
+    padding: 4px 4px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    vertical-align: top;
+  }
+
+  table.sched-table td.show-name {
+    white-space: normal;
+    color: var(--amber-dim);
+  }
+
+  table.sched-table tr.current td {
+    color: var(--amber);
+  }
+
+  table.sched-table tr.current td.show-name {
+    color: var(--amber);
+    text-shadow: 0 0 8px var(--amber-glow);
+  }
+
+  table.sched-table tr.current td.time::before {
+    content: "▶ ";
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<div class="panel">
+  <div class="header">
+    <span class="callsign">aNONradio.net</span>
+    <span class="freq">STREAM 8443</span>
+  </div>
+
+  <h1 class="title">// aNONradio //</h1>
+  <div class="sub">community-run internet radio &middot; SDF</div>
+
+  <div class="indicator-row">
+    <div class="lamp" id="lamp"></div>
+    <span class="status-text" id="statusText">STANDBY</span>
+  </div>
+
+  <div class="nowplaying" id="nowPlaying">&nbsp;</div>
+
+  <div class="vu" id="vu">
+    <span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span>
+  </div>
+
+  <div class="controls">
+    <button class="power-btn" id="powerBtn">▶ Tune In</button>
+    <div class="vol-row">
+      <label for="vol">VOL</label>
+      <input type="range" id="vol" min="0" max="100" value="80">
+    </div>
+  </div>
+
+  <div class="footer-note">
+    Live stream from aNONradio (SDF), served over HTTPS on port 8443.
+    A plain-HTTP mirror also exists on port 8000 for desktop players
+    like VLC.
+  </div>
+</div>
+
+<div class="sched-panel">
+  <details id="schedDetails">
+    <summary class="sched-summary">
+      <span>Schedule</span>
+      <span class="arrow">&#9656;</span>
+    </summary>
+    <div class="sched-meta" id="schedMeta"></div>
+    <div class="sched-scroll">
+      <table class="sched-table" id="schedTable"></table>
+    </div>
+  </details>
+</div>
+</div>
+
+<audio id="audio" preload="none"></audio>
+
+<script>
+  const STREAM_URL = "https://anonradio.net:8443/anonradio";
+
+  const audio = document.getElementById("audio");
+  const powerBtn = document.getElementById("powerBtn");
+  const lamp = document.getElementById("lamp");
+  const statusText = document.getElementById("statusText");
+  const nowPlaying = document.getElementById("nowPlaying");
+  const vu = document.getElementById("vu");
+  const vol = document.getElementById("vol");
+
+  let userWantsPlaying = false;
+  let reconnectAttempts = 0;
+  let reconnectTimer = null;
+  let connectTimeout = null;
+  const MAX_RECONNECT_DELAY = 30000;
+  const CONNECT_TIMEOUT = 10000;
+
+  audio.volume = vol.value / 100;
+  vol.addEventListener("input", () => {
+    audio.volume = vol.value / 100;
+  });
+
+  function setStatus(state, label) {
+    // state: 'off' | 'pending' | 'live'
+    lamp.className = "lamp" + (state === "live" ? " live" : state === "pending" ? " pending" : "");
+    statusText.className = "status-text" + (state === "live" ? " live" : "");
+    statusText.textContent = label;
+    vu.className = "vu" + (state === "live" ? " active" : "");
+  }
+
+  function clearReconnectTimer() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  }
+
+  function connect() {
+    clearReconnectTimer();
+    setStatus("pending", reconnectAttempts > 0 ? `RECONNECTING (${reconnectAttempts})` : "CONNECTING");
+    // cache-bust so a stalled connection doesn't get reused
+    audio.src = STREAM_URL + "?_=" + Date.now();
+    audio.load();
+    audio.play().catch(() => {
+      // autoplay/network rejection — scheduleReconnect will handle via error event
+    });
+
+    // Belt-and-suspenders: if neither 'playing' nor 'error' fires within
+    // this window (some failure modes are silent), treat it as failed.
+    if (connectTimeout) clearTimeout(connectTimeout);
+    connectTimeout = setTimeout(() => {
+      if (userWantsPlaying && audio.readyState < 3) {
+        scheduleReconnect();
+      }
+    }, CONNECT_TIMEOUT);
+  }
+
+  function scheduleReconnect() {
+    if (!userWantsPlaying) return;
+    clearReconnectTimer();
+    reconnectAttempts += 1;
+    const delay = Math.min(1000 * Math.pow(1.6, reconnectAttempts), MAX_RECONNECT_DELAY);
+    setStatus("pending", `RECONNECTING (${reconnectAttempts})`);
+    reconnectTimer = setTimeout(connect, delay);
+  }
+
+  audio.addEventListener("playing", () => {
+    if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
+    reconnectAttempts = 0;
+    setStatus("live", "ON AIR");
+  });
+
+  audio.addEventListener("waiting", () => {
+    if (userWantsPlaying) setStatus("pending", "BUFFERING");
+  });
+
+  audio.addEventListener("error", () => {
+    if (userWantsPlaying) scheduleReconnect();
+  });
+
+  audio.addEventListener("stalled", () => {
+    if (userWantsPlaying) scheduleReconnect();
+  });
+
+  powerBtn.addEventListener("click", () => {
+    if (userWantsPlaying) {
+      userWantsPlaying = false;
+      clearReconnectTimer();
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+      reconnectAttempts = 0;
+      powerBtn.textContent = "▶ Tune In";
+      powerBtn.classList.remove("on");
+      setStatus("off", "STANDBY");
+    } else {
+      userWantsPlaying = true;
+      powerBtn.textContent = "■ Stop";
+      powerBtn.classList.add("on");
+      connect();
+    }
+  });
+
+  // aNONradio's status-json.xsl (Icecast) and schedule pages don't send
+  // Access-Control-Allow-Origin, so a browser fetch() from this page is
+  // blocked by CORS no matter which of their endpoints we target. Instead
+  // of polling anything, the station's weekly schedule (normally a rolling
+  // set of RRULE:FREQ=WEEKLY events at https://anonradio.net/schedule/anonradio.ics)
+  // is captured below as a static snapshot, and "now playing" is derived
+  // purely from the viewer's system clock — zero network calls, so there's
+  // nothing for CORS to block.
+  //
+  // Snapshot taken 2026-08-05 from https://anonradio.net/schedule/anonradio.ics
+  // Each entry is [day, startMin, endMin, title]:
+  //   day: 0=Sun..6=Sat (UTC)
+  //   startMin/endMin: minutes since Sunday 00:00:00 UTC
+  // If aNONradio changes their lineup, this snapshot will need retaking.
+  const SCHEDULE_SNAPSHOT_DATE = "2026-08-05";
+  const SCHEDULE = [[0,0,59,'Funkaliciously Jazztastic Hour'],[0,90,119,'Railway Legends Myths and Stories'],[0,120,179,'Open VoIP on 1088'],[0,180,359,'Open Mic - Anyone can stream'],[0,360,449,'Audio Theater'],[0,450,479,'Dubious Goals Committee'],[0,600,629,'World News Report'],[0,660,779,'Synth Battle Royale Reveue'],[0,1020,1169,'Shut Up You Freak'],[0,1170,1199,'Dubious Goals Committee'],[0,1260,1319,'The Third Ear'],[0,1380,1439,'Intergalactic Wasabi Mix'],[1,1440,1499,'SDF Amateur Radio Club'],[1,1500,1559,'Organized Chaos'],[1,1560,1619,'Open VoIP on 1088'],[1,1620,1799,'Open Mic - Anyone can stream'],[1,1800,1889,'Audio Theater'],[1,1890,1919,'Dubious Goals Committee'],[1,1920,2039,'Chinese Pop Music w/ qingfeng'],[1,2040,2069,'World News Report'],[1,2100,2219,'Synth Battle Royale Reveue'],[1,2460,2519,'Open Mic - Anyone can stream'],[1,2520,2579,'Open VoIP on 1088'],[1,2580,2609,'News to Me'],[1,2610,2639,'Dubious Goals Committee'],[1,2640,2759,'Mix Remix'],[1,2760,2819,'Organized Chaos'],[1,2820,2849,'World News Report'],[2,2880,2939,'Stokesauce Radio Show'],[2,2940,2999,'Objects In Mirrors'],[2,3000,3059,'Open VoIP on 1088'],[2,3060,3239,'Open Mic - Anyone can stream'],[2,3240,3329,'Audio Theater'],[2,3330,3359,'Dubious Goals Committee'],[2,3360,3479,'Chinese Pop Music w/ qingfeng'],[2,3480,3509,'World News Report'],[2,3540,3659,'Synth Battle Royale Reveue'],[2,3780,3839,'A Step Further Out'],[2,3840,3899,'evolution revolution w/ djDamaru'],[2,3900,3959,'Open Mic - Anyone can stream'],[2,3960,4019,'Open VoIP on 1088'],[2,4020,4049,'News to Me'],[2,4050,4079,'Dubious Goals Committee'],[2,4140,4199,'SloFI Show w/ DJ SloMo'],[2,4200,4259,'Organized Chaos'],[2,4260,4319,'Praise Then Darkness'],[3,4320,4379,'lispy gopher show w/ screwtape'],[3,4380,4439,'Special Education'],[3,4440,4499,'Open VoIP on 1088'],[3,4500,4679,'Open Mic - Anyone can stream'],[3,4680,4769,'Audio Theater'],[3,4770,4799,'Dubious Goals Committee'],[3,4800,4919,'Chinese Pop Music w/ qingfeng'],[3,4920,4949,'World News Report'],[3,4980,5099,'Synth Battle Royale Reveue'],[3,5160,5219,'Astral Peaks'],[3,5220,5279,'evolution revolution w/ djDamaru'],[3,5280,5339,'Music For Nitrogen Narcosis'],[3,5340,5399,'Open Mic - Anyone can stream'],[3,5400,5459,'Open VoIP on 1088'],[3,5460,5489,'News to Me'],[3,5490,5519,'Dubious Goals Committee'],[3,5520,5579,'Chips \'n Dip'],[3,5580,5639,'Sounds of Synergy'],[3,5640,5759,'Old-Time Radio Theatre'],[4,5760,5819,'Lit Up On Linux'],[4,5820,5879,'Special Education'],[4,5880,5939,'Open VoIP on 1088'],[4,5940,6119,'Open Mic - Anyone can stream'],[4,6120,6209,'Audio Theater'],[4,6210,6239,'Dubious Goals Committee'],[4,6240,6359,'Chinese Pop Music w/ qingfeng'],[4,6360,6389,'World News Report'],[4,6420,6539,'Synth Battle Royale Reveue'],[4,6720,6779,'Shake Yer Booty w/ DJ Mak'],[4,6780,6839,'Open Mic - Anyone can stream'],[4,6840,6899,'Open VoIP on 1088'],[4,6900,6929,'News to Me'],[4,6930,6959,'Dubious Goals Committee'],[4,6960,7019,'Flux'],[4,7020,7079,'Language Soup w/ DJ Supersalad'],[4,7140,7169,'World News Report'],[5,7200,7259,'Banana Republic'],[5,7260,7319,'myocyte'],[5,7320,7379,'Open VoIP on 1088'],[5,7380,7559,'Open Mic - Anyone can stream'],[5,7560,7649,'Audio Theater'],[5,7650,7679,'Dubious Goals Committee'],[5,7680,7739,'dj aTRoPiNe / dJ PoLyBiuS'],[5,7860,7979,'Synth Battle Royale Reveue'],[5,8040,8099,'lispy gopher show w/ screwtape'],[5,8100,8159,'A Step Further Out'],[5,8160,8219,'derealization station'],[5,8220,8279,'Open Mic - Anyone can stream'],[5,8280,8339,'Open VoIP on 1088'],[5,8340,8369,'News to Me'],[5,8370,8399,'Dubious Goals Committee'],[5,8400,8459,'Mix Remix'],[5,8520,8579,'The Third Ear'],[5,8580,8609,'World News Report'],[6,8640,8699,'SCM Show'],[6,8700,8760,'The DJ Zdrmonster Show'],[6,8760,8819,'Open VoIP on 1088'],[6,8820,8999,'Open Mic - Anyone can stream'],[6,9000,9089,'Audio Theater'],[6,9090,9119,'Dubious Goals Committee'],[6,9240,9269,'World News Report'],[6,9300,9419,'Synth Battle Royale Reveue'],[6,9600,9629,'THE SOUND SHOW'],[6,9660,9719,'Open Mic - Anyone can stream'],[6,9720,9779,'Open VoIP on 1088'],[6,9780,9809,'A Step Further Out'],[6,9810,9839,'Dubious Goals Committee'],[6,9840,9869,'myocyte'],[6,9900,9959,'underground deep dark inky sets'],[6,9960,10019,'Plane of the Eclectic w/ DJ rolltime'],[6,10020,10079,'Intergalactic Wasabi Mix']];
+
+  const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+
+  // Most recent Sunday 00:00:00 UTC, as a Date — anchors SCHEDULE's
+  // minute-of-week offsets to real calendar dates for the current week.
+  function utcWeekStart(d) {
+    const ws = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    ws.setUTCDate(ws.getUTCDate() - ws.getUTCDay());
+    return ws;
+  }
+
+  function minuteOfWeekToDate(minuteOfWeek, weekStart) {
+    return new Date(weekStart.getTime() + minuteOfWeek * 60000);
+  }
+
+  function findCurrentSlot(now) {
+    const nowMin = now.getUTCDay() * 1440 + now.getUTCHours() * 60 + now.getUTCMinutes();
+    for (const slot of SCHEDULE) {
+      if (nowMin >= slot[1] && nowMin < slot[2]) return slot;
+    }
+    return null;
+  }
+
+  const timeFmt = new Intl.DateTimeFormat([], { hour: "numeric", minute: "2-digit" });
+
+  function updateNowPlaying() {
+    const now = new Date();
+    const weekStart = utcWeekStart(now);
+    const slot = findCurrentSlot(now);
+    if (slot) {
+      const start = minuteOfWeekToDate(slot[1], weekStart);
+      const end = minuteOfWeekToDate(slot[2], weekStart);
+      nowPlaying.textContent = `${slot[3]} · ${timeFmt.format(start)}–${timeFmt.format(end)}`;
+    } else {
+      nowPlaying.textContent = "No show currently scheduled";
+    }
+  }
+
+  // Renders the collapsible schedule table, grouped by the viewer's local
+  // day-of-week, converted from the static UTC snapshot above.
+  function renderScheduleTable() {
+    const now = new Date();
+    const weekStart = utcWeekStart(now);
+    const currentSlot = findCurrentSlot(now);
+
+    const rows = SCHEDULE.map((slot) => {
+      const start = minuteOfWeekToDate(slot[1], weekStart);
+      const end = minuteOfWeekToDate(slot[2], weekStart);
+      return { slot, start, end };
+    }).sort((a, b) => a.start - b.start);
+
+    const table = document.getElementById("schedTable");
+    table.innerHTML = "";
+    let lastLocalDay = null;
+
+    for (const row of rows) {
+      const localDay = row.start.getDay();
+      if (localDay !== lastLocalDay) {
+        const headRow = document.createElement("tr");
+        const th = document.createElement("th");
+        th.colSpan = 2;
+        th.className = "day-head";
+        th.textContent = DAY_NAMES[localDay];
+        headRow.appendChild(th);
+        table.appendChild(headRow);
+        lastLocalDay = localDay;
+      }
+
+      const tr = document.createElement("tr");
+      if (currentSlot && row.slot === currentSlot) tr.className = "current";
+
+      const timeCell = document.createElement("td");
+      timeCell.className = "time";
+      timeCell.textContent = `${timeFmt.format(row.start)}–${timeFmt.format(row.end)}`;
+
+      const nameCell = document.createElement("td");
+      nameCell.className = "show-name";
+      nameCell.textContent = row.slot[3];
+
+      tr.appendChild(timeCell);
+      tr.appendChild(nameCell);
+      table.appendChild(tr);
+    }
+
+    document.getElementById("schedMeta").textContent =
+      `Static snapshot from anonradio.net/schedule, taken ${SCHEDULE_SNAPSHOT_DATE}. ` +
+      `Times shown in your local timezone; computed from your system clock, no network requests.`;
+  }
+
+  let lastRenderedLocalDate = null;
+  function refreshSchedule() {
+    updateNowPlaying();
+    const today = new Date().toDateString();
+    if (today !== lastRenderedLocalDate) {
+      renderScheduleTable();
+      lastRenderedLocalDate = today;
+    }
+  }
+
+  refreshSchedule();
+  setInterval(refreshSchedule, 30000);
+
+  if ("mediaSession" in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: "aNONradio",
+      artist: "Live stream",
+      album: "SDF"
+    });
+    navigator.mediaSession.setActionHandler("play", () => powerBtn.click());
+    navigator.mediaSession.setActionHandler("pause", () => powerBtn.click());
+  }
+</script>
+
+</body>
+</html>
