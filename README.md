@@ -2,6 +2,9 @@
 
 A single-file, no-dependency web player for [aNONradio.net](https://anonradio.net) — a community-run internet radio station on SDF. Open the HTML file in a browser and go.
 
+<img width="436" height="491" alt="image" src="https://github.com/user-attachments/assets/54d8f9ed-7746-4ae2-be3e-8a8a33267aa3" />
+
+
 ![status](https://img.shields.io/badge/dependencies-none-brightgreen) ![type](https://img.shields.io/badge/format-single%20HTML%20file-blue)
 
 ## Features
